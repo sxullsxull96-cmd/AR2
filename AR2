@@ -1,0 +1,301 @@
+-- ESP COMPLET POUR TON AR2-LIKE
+-- - Joueurs (alliés/ennemis, distance, arme équipée)
+-- - Zombies
+-- - Loot
+-- - GUI toggle
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local ESPEnabled = true  -- contrôlé par le GUI
+
+-- CONFIG DOSSIERS
+local ZOMBIE_FOLDER = workspace:WaitForChild("Zombies", 5)  -- adapte si nom différent
+local LOOT_FOLDER   = workspace:WaitForChild("Loot", 5)     -- adapte si nom différent
+
+----------------------------------------------------------------
+-- UTILITAIRES
+----------------------------------------------------------------
+
+local function isEnemy(player)
+    if not LocalPlayer.Team or not player.Team then
+        -- Pas de team définie -> on considère ennemi
+        return true
+    end
+    return player.Team ~= LocalPlayer.Team
+end
+
+local function getEquippedWeapon(player)
+    -- Essaie de trouver un StringValue "EquippedWeapon" quelque part
+    local equipped
+    equipped = player:FindFirstChild("EquippedWeapon")
+    if not equipped and player.Character then
+        equipped = player.Character:FindFirstChild("EquippedWeapon")
+    end
+
+    if equipped and equipped:IsA("StringValue") then
+        return equipped.Value
+    end
+
+    return "Aucune arme"
+end
+
+local function createBillboard(adornPart, nameText, color)
+    if not adornPart then return end
+
+    -- supprime l'ancien si existe
+    local existing = adornPart:FindFirstChild("ESP_Billboard")
+    if existing then
+        existing:Destroy()
+    end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_Billboard"
+    billboard.Adornee = adornPart
+    billboard.Size = UDim2.new(0, 200, 0, 60)
+    billboard.StudsOffset = Vector3.new(0, 2, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = adornPart
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = color or Color3.new(1, 1, 1)
+    label.TextStrokeTransparency = 0
+    label.Font = Enum.Font.SourceSansBold
+    label.TextScaled = true
+    label.Text = nameText or ""
+    label.Parent = billboard
+
+    return billboard, label
+end
+
+----------------------------------------------------------------
+-- ESP JOUEURS
+----------------------------------------------------------------
+
+local function setupPlayerESP(character, player)
+    if player == LocalPlayer then return end
+    if not character then return end
+
+    local head = character:FindFirstChild("Head")
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not head or not root then return end
+
+    local color
+    if isEnemy(player) then
+        color = Color3.fromRGB(0, 170, 255)  -- ENNEMI = BLEU
+    else
+        color = Color3.fromRGB(0, 255, 0)    -- ALLIÉ = VERT
+    end
+
+    local billboard, label = createBillboard(head, player.Name, color)
+    if not billboard or not label then return end
+
+    RunService.RenderStepped:Connect(function()
+        if not billboard.Parent then return end
+
+        billboard.Enabled = ESPEnabled
+
+        if not character.Parent then
+            billboard:Destroy()
+            return
+        end
+
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+        local distanceText = ""
+        if root and myRoot then
+            local distance = (root.Position - myRoot.Position).Magnitude
+            distanceText = string.format("%.0f m", distance)
+        end
+
+        local weaponName = getEquippedWeapon(player)
+
+        label.Text = string.format("%s\n%s\n[%s]", player.Name, distanceText, weaponName)
+    end)
+end
+
+local function onPlayerAdded(player)
+    if player.Character then
+        setupPlayerESP(player.Character, player)
+    end
+    player.CharacterAdded:Connect(function(char)
+        setupPlayerESP(char, player)
+    end)
+end
+
+-- joueurs existants
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then
+        onPlayerAdded(plr)
+    end
+end
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+----------------------------------------------------------------
+-- ESP ZOMBIES
+-- On suppose que chaque zombie est un Model dans workspace.Zombies
+-- avec HumanoidRootPart + Head
+----------------------------------------------------------------
+
+local function setupZombieESP(zombieModel)
+    if not zombieModel or not zombieModel:IsA("Model") then return end
+
+    local head = zombieModel:FindFirstChild("Head")
+    local root = zombieModel:FindFirstChild("HumanoidRootPart")
+    if not head or not root then return end
+
+    local nameText = zombieModel.Name or "Zombie"
+    local billboard, label = createBillboard(head, nameText, Color3.fromRGB(255, 0, 0)) -- ROUGE pour zombies
+    if not billboard or not label then return end
+
+    RunService.RenderStepped:Connect(function()
+        if not billboard.Parent then return end
+        billboard.Enabled = ESPEnabled
+
+        if not zombieModel.Parent then
+            billboard:Destroy()
+            return
+        end
+
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local distanceText = ""
+
+        if root and myRoot then
+            local distance = (root.Position - myRoot.Position).Magnitude
+            distanceText = string.format("%.0f m", distance)
+        end
+
+        label.Text = string.format("Zombie\n%s", distanceText)
+    end)
+end
+
+if ZOMBIE_FOLDER then
+    for _, z in ipairs(ZOMBIE_FOLDER:GetChildren()) do
+        setupZombieESP(z)
+    end
+
+    ZOMBIE_FOLDER.ChildAdded:Connect(function(child)
+        task.wait(0.1)
+        setupZombieESP(child)
+    end)
+end
+
+----------------------------------------------------------------
+-- ESP LOOT
+-- On suppose que chaque loot est soit :
+--  - une Part dans workspace.Loot
+--  - un Model avec PrimaryPart dans workspace.Loot
+----------------------------------------------------------------
+
+local function getLootPartAndName(obj)
+    if obj:IsA("BasePart") then
+        return obj, obj.Name
+    elseif obj:IsA("Model") then
+        local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+        return primary, obj.Name
+    end
+    return nil, nil
+end
+
+local function setupLootESP(lootObj)
+    local part, lootName = getLootPartAndName(lootObj)
+    if not part or not lootName then return end
+
+    local billboard, label = createBillboard(part, lootName, Color3.fromRGB(255, 255, 0)) -- JAUNE pour loot
+    if not billboard or not label then return end
+
+    RunService.RenderStepped:Connect(function()
+        if not billboard.Parent then return end
+        billboard.Enabled = ESPEnabled
+
+        if not lootObj.Parent then
+            billboard:Destroy()
+            return
+        end
+
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local distanceText = ""
+
+        if myRoot then
+            local distance = (part.Position - myRoot.Position).Magnitude
+            distanceText = string.format("%.0f m", distance)
+        end
+
+        label.Text = string.format("%s\n%s", lootName, distanceText)
+    end)
+end
+
+if LOOT_FOLDER then
+    for _, l in ipairs(LOOT_FOLDER:GetChildren()) do
+        setupLootESP(l)
+    end
+
+    LOOT_FOLDER.ChildAdded:Connect(function(child)
+        task.wait(0.1)
+        setupLootESP(child)
+    end)
+end
+
+----------------------------------------------------------------
+-- GUI POUR TOGGLER L'ESP
+----------------------------------------------------------------
+
+local function createToggleGUI()
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ESP_Toggle_GUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = playerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 160, 0, 55)
+    frame.Position = UDim2.new(0, 20, 0, 100)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    frame.BackgroundTransparency = 0.3
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
+
+    local uiCorner = Instance.new("UICorner")
+    uiCorner.CornerRadius = UDim.new(0, 8)
+    uiCorner.Parent = frame
+
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -10, 1, -10)
+    button.Position = UDim2.new(0, 5, 0, 5)
+    button.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Font = Enum.Font.SourceSansBold
+    button.TextScaled = true
+    button.Text = "ESP: ON"
+    button.Parent = frame
+
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 6)
+    buttonCorner.Parent = button
+
+    local function updateButton()
+        if ESPEnabled then
+            button.Text = "ESP: ON"
+            button.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+        else
+            button.Text = "ESP: OFF"
+            button.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
+        end
+    end
+
+    button.MouseButton1Click:Connect(function()
+        ESPEnabled = not ESPEnabled
+        updateButton()
+    end)
+
+    updateButton()
+end
+
+createToggleGUI()
