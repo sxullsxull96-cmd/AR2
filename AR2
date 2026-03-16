@@ -1,301 +1,932 @@
--- ESP COMPLET POUR TON AR2-LIKE
--- - Joueurs (alliés/ennemis, distance, arme équipée)
--- - Zombies
--- - Loot
--- - GUI toggle
+-- ============================================================
+--   APOCALYPSE RISING 2 — ESP SCRIPT v4
+--   GUI minimisable | HP temps réel | No Recoil fixé
+--   Armes AR2 | Speed | Radar | 5000m max
+-- ============================================================
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local CoreGui          = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local Camera           = workspace.CurrentCamera
+local LocalPlayer      = Players.LocalPlayer
 
-local ESPEnabled = true  -- contrôlé par le GUI
+-- ============================================================
+-- BASE DE DONNÉES ARMES AR2
+-- ============================================================
+local AR2_WEAPONS = {
+    ["AK-47"]           = {icon="🔫", cat="Assault Rifle"},
+    ["AK-74"]           = {icon="🔫", cat="Assault Rifle"},
+    ["AKM"]             = {icon="🔫", cat="Assault Rifle"},
+    ["AK-103"]          = {icon="🔫", cat="Assault Rifle"},
+    ["M16A4"]           = {icon="🔫", cat="Assault Rifle"},
+    ["M4A1"]            = {icon="🔫", cat="Assault Rifle"},
+    ["SCAR-L"]          = {icon="🔫", cat="Assault Rifle"},
+    ["SCAR-H"]          = {icon="🔫", cat="Battle Rifle"},
+    ["HK416"]           = {icon="🔫", cat="Assault Rifle"},
+    ["G36C"]            = {icon="🔫", cat="Assault Rifle"},
+    ["FN FAL"]          = {icon="🔫", cat="Battle Rifle"},
+    ["M14"]             = {icon="🔫", cat="Battle Rifle"},
+    ["SKS"]             = {icon="🔫", cat="Battle Rifle"},
+    ["Mosin-Nagant"]    = {icon="🎯", cat="Sniper"},
+    ["SVD"]             = {icon="🎯", cat="Sniper"},
+    ["M24"]             = {icon="🎯", cat="Sniper"},
+    ["AWM"]             = {icon="🎯", cat="Sniper"},
+    ["Kar98k"]          = {icon="🎯", cat="Sniper"},
+    ["L96"]             = {icon="🎯", cat="Sniper"},
+    ["Barrett M82"]     = {icon="🎯", cat="Sniper"},
+    ["MP5"]             = {icon="⚡",  cat="SMG"},
+    ["MAC-10"]          = {icon="⚡",  cat="SMG"},
+    ["UMP-45"]          = {icon="⚡",  cat="SMG"},
+    ["PP-19"]           = {icon="⚡",  cat="SMG"},
+    ["P90"]             = {icon="⚡",  cat="SMG"},
+    ["Vector"]          = {icon="⚡",  cat="SMG"},
+    ["M249 SAW"]        = {icon="💥", cat="LMG"},
+    ["RPK"]             = {icon="💥", cat="LMG"},
+    ["PKM"]             = {icon="💥", cat="LMG"},
+    ["Mossberg 500"]    = {icon="🔥", cat="Shotgun"},
+    ["Remington 870"]   = {icon="🔥", cat="Shotgun"},
+    ["SPAS-12"]         = {icon="🔥", cat="Shotgun"},
+    ["AA-12"]           = {icon="🔥", cat="Shotgun"},
+    ["Glock 17"]        = {icon="🔹", cat="Pistol"},
+    ["Desert Eagle"]    = {icon="🔹", cat="Pistol"},
+    ["M1911"]           = {icon="🔹", cat="Pistol"},
+    ["Snubnose"]        = {icon="🔹", cat="Pistol"},
+    ["Revolver"]        = {icon="🔹", cat="Pistol"},
+    ["Beretta M9"]      = {icon="🔹", cat="Pistol"},
+    ["Sweeper"]         = {icon="⭐", cat="SPECIAL"},
+    ["Snake's MAC-10"]  = {icon="⭐", cat="SPECIAL"},
+    ["Avtomat"]         = {icon="⭐", cat="SPECIAL"},
+    ["Praetor Blade"]   = {icon="⚔️",  cat="SPECIAL"},
+    ["Pocket Knife"]    = {icon="🔪", cat="Melee"},
+    ["Knife"]           = {icon="🔪", cat="Melee"},
+    ["Katana"]          = {icon="⚔️",  cat="Melee"},
+    ["Machete"]         = {icon="⚔️",  cat="Melee"},
+    ["Bat"]             = {icon="🏏", cat="Melee"},
+    ["Fire Axe"]        = {icon="🪓", cat="Melee"},
+    ["Crowbar"]         = {icon="🔧", cat="Melee"},
+    ["Officer's Sword"] = {icon="⚔️",  cat="Melee"},
+}
 
--- CONFIG DOSSIERS
-local ZOMBIE_FOLDER = workspace:WaitForChild("Zombies", 5)  -- adapte si nom différent
-local LOOT_FOLDER   = workspace:WaitForChild("Loot", 5)     -- adapte si nom différent
+-- ============================================================
+-- CONFIG
+-- ============================================================
+local Config = {
+    ESP_Enabled      = false,
+    ESP_Highlight    = true,
+    ESP_Distance     = true,
+    ESP_Item         = true,
+    ESP_Health       = true,
+    Radar_Enabled    = false,
+    Speed_Enabled    = false,
+    NoRecoil_Enabled = false,
+    MaxDistance      = 500,
+    TextSize         = 13,
+    RadarRange       = 200,
+    SpeedMultiplier  = 1.6,
+}
 
-----------------------------------------------------------------
--- UTILITAIRES
-----------------------------------------------------------------
-
-local function isEnemy(player)
-    if not LocalPlayer.Team or not player.Team then
-        -- Pas de team définie -> on considère ennemi
-        return true
+-- ============================================================
+-- SCREEN GUI RACINE
+-- ============================================================
+-- Nettoyer ancienne instance si re-exec
+pcall(function()
+    if CoreGui:FindFirstChild("AR2_ESP_v4") then
+        CoreGui:FindFirstChild("AR2_ESP_v4"):Destroy()
     end
-    return player.Team ~= LocalPlayer.Team
+    if LocalPlayer.PlayerGui:FindFirstChild("AR2_ESP_v4") then
+        LocalPlayer.PlayerGui:FindFirstChild("AR2_ESP_v4"):Destroy()
+    end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AR2_ESP_v4"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 100
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer.PlayerGui end
+
+-- ============================================================
+-- BOUTON ICÔNE (affiché quand le menu est fermé)
+-- ============================================================
+local IconBtn = Instance.new("ImageButton")
+IconBtn.Size = UDim2.new(0, 48, 0, 48)
+IconBtn.Position = UDim2.new(0, 20, 0.5, -24)
+IconBtn.BackgroundColor3 = Color3.fromRGB(180, 25, 25)
+IconBtn.BorderSizePixel = 0
+IconBtn.Image = ""          -- pas d'image, on met du texte
+IconBtn.Visible = false     -- caché au départ (menu visible par défaut)
+IconBtn.Parent = ScreenGui
+Instance.new("UICorner", IconBtn).CornerRadius = UDim.new(0, 12)
+
+local IconStroke = Instance.new("UIStroke", IconBtn)
+IconStroke.Color = Color3.fromRGB(255, 80, 80)
+IconStroke.Thickness = 2
+
+local IconLabel = Instance.new("TextLabel", IconBtn)
+IconLabel.Size = UDim2.new(1, 0, 1, 0)
+IconLabel.BackgroundTransparency = 1
+IconLabel.Text = "AR2"
+IconLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+IconLabel.TextSize = 12
+IconLabel.Font = Enum.Font.GothamBold
+
+-- Pulse animation sur l'icône
+local pulseTween = TweenService:Create(IconBtn,
+    TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+    {BackgroundColor3 = Color3.fromRGB(220, 50, 50)}
+)
+
+-- ============================================================
+-- FENÊTRE PRINCIPALE
+-- ============================================================
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 290, 0, 540)
+MainFrame.Position = UDim2.new(0, 80, 0, 60)
+MainFrame.BackgroundColor3 = Color3.fromRGB(11, 11, 15)
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Color = Color3.fromRGB(200, 30, 30)
+MainStroke.Thickness = 1.5
+
+-- ── Titre
+local TitleBar = Instance.new("Frame", MainFrame)
+TitleBar.Size = UDim2.new(1, 0, 0, 42)
+TitleBar.BackgroundColor3 = Color3.fromRGB(20, 6, 6)
+TitleBar.BorderSizePixel = 0
+Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 10)
+
+local TitleLine = Instance.new("Frame", TitleBar)
+TitleLine.Size = UDim2.new(1, 0, 0, 2)
+TitleLine.Position = UDim2.new(0, 0, 1, -2)
+TitleLine.BackgroundColor3 = Color3.fromRGB(220, 30, 30)
+TitleLine.BorderSizePixel = 0
+
+local TitleDot = Instance.new("Frame", TitleBar)
+TitleDot.Size = UDim2.new(0, 10, 0, 10)
+TitleDot.Position = UDim2.new(0, 14, 0.5, -5)
+TitleDot.BackgroundColor3 = Color3.fromRGB(255, 40, 40)
+TitleDot.BorderSizePixel = 0
+Instance.new("UICorner", TitleDot).CornerRadius = UDim.new(1, 0)
+
+local TitleLbl = Instance.new("TextLabel", TitleBar)
+TitleLbl.Size = UDim2.new(1, -80, 1, 0)
+TitleLbl.Position = UDim2.new(0, 32, 0, 0)
+TitleLbl.BackgroundTransparency = 1
+TitleLbl.Text = "AR2  •  ESP v4"
+TitleLbl.TextColor3 = Color3.fromRGB(230, 230, 230)
+TitleLbl.TextSize = 14
+TitleLbl.Font = Enum.Font.GothamBold
+TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Bouton MINIMISER (—)
+local MinBtn = Instance.new("TextButton", TitleBar)
+MinBtn.Size = UDim2.new(0, 30, 0, 30)
+MinBtn.Position = UDim2.new(1, -72, 0.5, -15)
+MinBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+MinBtn.TextSize = 14
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.BorderSizePixel = 0
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+-- Bouton FERMER (✕)
+local CloseBtn = Instance.new("TextButton", TitleBar)
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -38, 0.5, -15)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 13
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.BorderSizePixel = 0
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+-- ── Minimiser : cache le menu et affiche l'icône
+MinBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    IconBtn.Visible = true
+    pulseTween:Play()
+end)
+
+-- ── Fermer (✕) : même comportement que minimiser
+CloseBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    IconBtn.Visible = true
+    pulseTween:Play()
+end)
+
+-- ── Clic sur l'icône : rouvre le menu
+IconBtn.MouseButton1Click:Connect(function()
+    pulseTween:Pause()
+    IconBtn.BackgroundColor3 = Color3.fromRGB(180, 25, 25)
+    IconBtn.Visible = false
+    MainFrame.Visible = true
+end)
+
+-- Drag du menu
+local dragging, dragStart, startPos
+TitleBar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true; dragStart = i.Position; startPos = MainFrame.Position
+    end
+end)
+TitleBar.InputChanged:Connect(function(i)
+    if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = i.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
+                                        startPos.Y.Scale, startPos.Y.Offset + d.Y)
+    end
+end)
+TitleBar.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+-- Drag de l'icône
+local iDrag, iDragStart, iStartPos
+IconBtn.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        iDrag = true; iDragStart = i.Position; iStartPos = IconBtn.Position
+    end
+end)
+IconBtn.InputChanged:Connect(function(i)
+    if iDrag and i.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = i.Position - iDragStart
+        IconBtn.Position = UDim2.new(iStartPos.X.Scale, iStartPos.X.Offset + d.X,
+                                      iStartPos.Y.Scale, iStartPos.Y.Offset + d.Y)
+    end
+end)
+IconBtn.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then iDrag = false end
+end)
+
+-- ============================================================
+-- SCROLL CONTENT
+-- ============================================================
+local ContentFrame = Instance.new("ScrollingFrame", MainFrame)
+ContentFrame.Size = UDim2.new(1, 0, 1, -46)
+ContentFrame.Position = UDim2.new(0, 0, 0, 46)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.BorderSizePixel = 0
+ContentFrame.ScrollBarThickness = 3
+ContentFrame.ScrollBarImageColor3 = Color3.fromRGB(180, 30, 30)
+ContentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ContentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local ListLayout = Instance.new("UIListLayout", ContentFrame)
+ListLayout.Padding = UDim.new(0, 5)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local Pad = Instance.new("UIPadding", ContentFrame)
+Pad.PaddingLeft = UDim.new(0, 12); Pad.PaddingRight  = UDim.new(0, 12)
+Pad.PaddingTop  = UDim.new(0, 10); Pad.PaddingBottom = UDim.new(0, 10)
+
+-- ============================================================
+-- UTILITAIRES GUI
+-- ============================================================
+local function CatLabel(text)
+    local lbl = Instance.new("TextLabel", ContentFrame)
+    lbl.Size = UDim2.new(1, 0, 0, 22)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "  " .. text:upper()
+    lbl.TextColor3 = Color3.fromRGB(180, 50, 50)
+    lbl.TextSize = 11
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
 end
 
-local function getEquippedWeapon(player)
-    -- Essaie de trouver un StringValue "EquippedWeapon" quelque part
-    local equipped
-    equipped = player:FindFirstChild("EquippedWeapon")
-    if not equipped and player.Character then
-        equipped = player.Character:FindFirstChild("EquippedWeapon")
-    end
-
-    if equipped and equipped:IsA("StringValue") then
-        return equipped.Value
-    end
-
-    return "Aucune arme"
+local function Sep()
+    local s = Instance.new("Frame", ContentFrame)
+    s.Size = UDim2.new(1, 0, 0, 1)
+    s.BackgroundColor3 = Color3.fromRGB(38, 16, 16)
+    s.BorderSizePixel = 0
 end
 
-local function createBillboard(adornPart, nameText, color)
-    if not adornPart then return end
+local function Toggle(label, default, cb)
+    local row = Instance.new("Frame", ContentFrame)
+    row.Size = UDim2.new(1, 0, 0, 36)
+    row.BackgroundColor3 = Color3.fromRGB(19, 19, 25)
+    row.BorderSizePixel = 0
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
 
-    -- supprime l'ancien si existe
-    local existing = adornPart:FindFirstChild("ESP_Billboard")
-    if existing then
-        existing:Destroy()
-    end
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(1, -56, 1, 0)
+    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(210, 210, 210)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
 
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ESP_Billboard"
-    billboard.Adornee = adornPart
-    billboard.Size = UDim2.new(0, 200, 0, 60)
-    billboard.StudsOffset = Vector3.new(0, 2, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = adornPart
+    local bg = Instance.new("Frame", row)
+    bg.Size = UDim2.new(0, 38, 0, 20)
+    bg.Position = UDim2.new(1, -50, 0.5, -10)
+    bg.BackgroundColor3 = default and Color3.fromRGB(180, 30, 30) or Color3.fromRGB(50, 50, 55)
+    bg.BorderSizePixel = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = color or Color3.new(1, 1, 1)
-    label.TextStrokeTransparency = 0
-    label.Font = Enum.Font.SourceSansBold
-    label.TextScaled = true
-    label.Text = nameText or ""
-    label.Parent = billboard
+    local knob = Instance.new("Frame", bg)
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.Position = default and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
 
-    return billboard, label
+    local state = default
+    local btn = Instance.new("TextButton", row)
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        bg.BackgroundColor3 = state and Color3.fromRGB(180,30,30) or Color3.fromRGB(50,50,55)
+        knob.Position = state and UDim2.new(1,-17,0.5,-7) or UDim2.new(0,3,0.5,-7)
+        if cb then cb(state) end
+    end)
 end
 
-----------------------------------------------------------------
--- ESP JOUEURS
-----------------------------------------------------------------
+-- Slider générique
+local function Slider(label, minVal, maxVal, defaultVal, cb)
+    local container = Instance.new("Frame", ContentFrame)
+    container.Size = UDim2.new(1, 0, 0, 52)
+    container.BackgroundColor3 = Color3.fromRGB(19, 19, 25)
+    container.BorderSizePixel = 0
+    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 7)
 
-local function setupPlayerESP(character, player)
+    local titleLbl = Instance.new("TextLabel", container)
+    titleLbl.Size = UDim2.new(1, -10, 0, 20)
+    titleLbl.Position = UDim2.new(0, 12, 0, 4)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Text = label .. " : " .. defaultVal
+    titleLbl.TextColor3 = Color3.fromRGB(210, 210, 210)
+    titleLbl.TextSize = 12
+    titleLbl.Font = Enum.Font.Gotham
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local trackBg = Instance.new("Frame", container)
+    trackBg.Size = UDim2.new(1, -24, 0, 6)
+    trackBg.Position = UDim2.new(0, 12, 1, -18)
+    trackBg.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    trackBg.BorderSizePixel = 0
+    Instance.new("UICorner", trackBg).CornerRadius = UDim.new(1, 0)
+
+    local pct = (defaultVal - minVal) / (maxVal - minVal)
+    local fill = Instance.new("Frame", trackBg)
+    fill.Size = UDim2.new(pct, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local handle = Instance.new("Frame", trackBg)
+    handle.Size = UDim2.new(0, 14, 0, 14)
+    handle.Position = UDim2.new(pct, -7, 0.5, -7)
+    handle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    handle.BorderSizePixel = 0
+    Instance.new("UICorner", handle).CornerRadius = UDim.new(1, 0)
+
+    local currentVal = defaultVal
+    local sliding = false
+
+    local function UpdateSlider(absX)
+        local trackAbsPos = trackBg.AbsolutePosition.X
+        local trackAbsSize = trackBg.AbsoluteSize.X
+        local p = math.clamp((absX - trackAbsPos) / trackAbsSize, 0, 1)
+        fill.Size = UDim2.new(p, 0, 1, 0)
+        handle.Position = UDim2.new(p, -7, 0.5, -7)
+        currentVal = math.floor(minVal + p * (maxVal - minVal))
+        titleLbl.Text = label .. " : " .. currentVal
+        if cb then cb(currentVal) end
+    end
+
+    trackBg.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliding = true
+            UpdateSlider(i.Position.X)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if sliding and i.UserInputType == Enum.UserInputType.MouseMovement then
+            UpdateSlider(i.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliding = false
+        end
+    end)
+
+    return container
+end
+
+-- ============================================================
+-- CONSTRUCTION DU MENU
+-- ============================================================
+CatLabel("⚠  ESP — JOUEURS")
+Toggle("Activer l'ESP", false, function(v) Config.ESP_Enabled = v end)
+Toggle("Surbrillance rouge (travers murs)", true, function(v) Config.ESP_Highlight = v end)
+Toggle("Afficher la distance", true, function(v) Config.ESP_Distance = v end)
+Toggle("Afficher l'arme en main", true, function(v) Config.ESP_Item = v end)
+Toggle("Barre de santé (temps réel)", true, function(v) Config.ESP_Health = v end)
+
+Sep()
+Slider("Distance max ESP (m)", 50, 5000, 500, function(v)
+    Config.MaxDistance = v
+end)
+
+Sep()
+CatLabel("🗺  RADAR / MINIMAP")
+Toggle("Activer le radar", false, function(v) Config.Radar_Enabled = v end)
+Slider("Portée radar (studs)", 50, 1000, 200, function(v)
+    Config.RadarRange = v
+end)
+
+Sep()
+CatLabel("⚡  MOUVEMENTS")
+Toggle("Speed Boost", false, function(v)
+    Config.Speed_Enabled = v
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.WalkSpeed = v and (16 * Config.SpeedMultiplier) or 16 end
+end)
+Slider("Multiplicateur vitesse", 10, 30, 16, function(v)
+    Config.SpeedMultiplier = v / 16
+    if Config.Speed_Enabled then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = v end
+    end
+end)
+
+Sep()
+CatLabel("🎯  COMBAT")
+Toggle("No Recoil", false, function(v)
+    Config.NoRecoil_Enabled = v
+end)
+
+Sep()
+
+local statusFrame = Instance.new("Frame", ContentFrame)
+statusFrame.Size = UDim2.new(1, 0, 0, 28)
+statusFrame.BackgroundColor3 = Color3.fromRGB(14, 5, 5)
+statusFrame.BorderSizePixel = 0
+Instance.new("UICorner", statusFrame).CornerRadius = UDim.new(0, 7)
+
+local statusLabel = Instance.new("TextLabel", statusFrame)
+statusLabel.Size = UDim2.new(1, 0, 1, 0)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "ESP INACTIF"
+statusLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
+statusLabel.TextSize = 11
+statusLabel.Font = Enum.Font.GothamBold
+
+-- ============================================================
+-- RADAR
+-- ============================================================
+local RadarFrame = Instance.new("Frame", ScreenGui)
+RadarFrame.Size = UDim2.new(0, 160, 0, 160)
+RadarFrame.Position = UDim2.new(1, -180, 1, -180)
+RadarFrame.BackgroundColor3 = Color3.fromRGB(8, 8, 10)
+RadarFrame.BackgroundTransparency = 0.2
+RadarFrame.BorderSizePixel = 0
+RadarFrame.Visible = false
+Instance.new("UICorner", RadarFrame).CornerRadius = UDim.new(1, 0)
+local rs = Instance.new("UIStroke", RadarFrame)
+rs.Color = Color3.fromRGB(180, 25, 25); rs.Thickness = 1.5
+
+local function MkLine(p, sz, pos, col)
+    local f = Instance.new("Frame", p)
+    f.Size = sz; f.Position = pos
+    f.BackgroundColor3 = col or Color3.fromRGB(50,50,50)
+    f.BorderSizePixel = 0
+end
+MkLine(RadarFrame, UDim2.new(1,0,0,1), UDim2.new(0,0,0.5,0))
+MkLine(RadarFrame, UDim2.new(0,1,1,0), UDim2.new(0.5,0,0,0))
+
+local RadCircle = Instance.new("Frame", RadarFrame)
+RadCircle.Size = UDim2.new(0.6,0,0.6,0)
+RadCircle.Position = UDim2.new(0.2,0,0.2,0)
+RadCircle.BackgroundTransparency = 1
+RadCircle.BorderSizePixel = 0
+Instance.new("UICorner", RadCircle).CornerRadius = UDim.new(1,0)
+Instance.new("UIStroke", RadCircle).Color = Color3.fromRGB(40,40,40)
+
+local SelfDot = Instance.new("Frame", RadarFrame)
+SelfDot.Size = UDim2.new(0,8,0,8)
+SelfDot.Position = UDim2.new(0.5,-4,0.5,-4)
+SelfDot.BackgroundColor3 = Color3.fromRGB(50,200,100)
+SelfDot.BorderSizePixel = 0
+Instance.new("UICorner", SelfDot).CornerRadius = UDim.new(1,0)
+
+local RadTitle = Instance.new("TextLabel", RadarFrame)
+RadTitle.Size = UDim2.new(1,0,0,14)
+RadTitle.Position = UDim2.new(0,0,0,-18)
+RadTitle.BackgroundTransparency = 1
+RadTitle.Text = "RADAR"
+RadTitle.TextColor3 = Color3.fromRGB(180,30,30)
+RadTitle.TextSize = 10
+RadTitle.Font = Enum.Font.GothamBold
+
+local RadarDots = {}
+
+-- ============================================================
+-- FONCTIONS ESP
+-- ============================================================
+local function HPColor(pct)
+    if pct > 0.6 then return Color3.fromRGB(50, 220, 80)
+    elseif pct > 0.3 then return Color3.fromRGB(240, 180, 30)
+    else return Color3.fromRGB(240, 50, 50) end
+end
+
+local function GetWeaponLabel(char)
+    -- Chercher Tool directement sur le character (arme équipée)
+    for _, obj in pairs(char:GetChildren()) do
+        if obj:IsA("Tool") then
+            local name = obj.Name
+            local info = AR2_WEAPONS[name]
+            if info then
+                return info.icon .. " " .. name .. "  [" .. info.cat .. "]"
+            else
+                -- Arme inconnue : affiche quand même
+                return "🔫 " .. name
+            end
+        end
+    end
+    -- Aucun outil → chercher un Model nommé comme une arme (certains jeux cachent l'arme ainsi)
+    for _, obj in pairs(char:GetChildren()) do
+        if obj:IsA("Model") then
+            local info = AR2_WEAPONS[obj.Name]
+            if info then return info.icon .. " " .. obj.Name .. "  [" .. info.cat .. "]" end
+        end
+    end
+    return "✋ Aucun"
+end
+
+-- ============================================================
+-- NO RECOIL — méthode correcte via BindToRenderStep
+-- ============================================================
+-- On mémorise le CFrame de la caméra AVANT que le moteur applique le recul
+-- puis on le restaure si la différence de pitch est positive (recul vers le haut)
+local savedCamCF  = nil
+local noRecoilBound = false
+
+local function BindNoRecoil()
+    if noRecoilBound then return end
+    noRecoilBound = true
+
+    -- Priorité Camera (avant rendu) : on sauvegarde
+    RunService:BindToRenderStep("AR2_NR_SAVE", Enum.RenderPriority.Camera.Value - 1, function()
+        if Config.NoRecoil_Enabled then
+            savedCamCF = Camera.CFrame
+        end
+    end)
+
+    -- Priorité Last (après que le jeu a appliqué le recul) : on corrige
+    RunService:BindToRenderStep("AR2_NR_FIX", Enum.RenderPriority.Last.Value, function()
+        if not Config.NoRecoil_Enabled or not savedCamCF then return end
+
+        -- Vérifie qu'on tient une arme
+        local char = LocalPlayer.Character
+        local hasTool = false
+        if char then
+            for _, obj in pairs(char:GetChildren()) do
+                if obj:IsA("Tool") then hasTool = true break end
+            end
+        end
+        if not hasTool then savedCamCF = nil return end
+
+        local newCF     = Camera.CFrame
+        local oldPitch  = select(1, savedCamCF:ToEulerAnglesYXZ())
+        local newPitch  = select(1, newCF:ToEulerAnglesYXZ())
+        local _, newYaw = select(2, newCF:ToEulerAnglesYXZ()), select(2, newCF:ToEulerAnglesYXZ())
+        local _, _, newRoll = newCF:ToEulerAnglesYXZ()
+
+        -- Le recul fait monter la visée = pitch diminue (plus négatif)
+        -- On annule seulement les changements involontaires de pitch
+        local pitchDelta = newPitch - oldPitch
+        if pitchDelta < -0.0005 then
+            -- Restaurer le pitch d'avant, garder yaw & position actuels
+            local _, savedYaw, savedRoll = savedCamCF:ToEulerAnglesYXZ()
+            -- On garde la position et le yaw courant, on restaure juste le pitch
+            local _, curYaw, _ = newCF:ToEulerAnglesYXZ()
+            Camera.CFrame = CFrame.new(newCF.Position)
+                * CFrame.fromEulerAnglesYXZ(oldPitch, curYaw, newRoll)
+        end
+    end)
+end
+BindNoRecoil()
+
+-- ============================================================
+-- ESP OBJECTS
+-- ============================================================
+local ESPObjects = {}
+
+local function CreateESP(player)
     if player == LocalPlayer then return end
-    if not character then return end
+    if ESPObjects[player] then return end
+    local data = {}
 
-    local head = character:FindFirstChild("Head")
-    local root = character:FindFirstChild("HumanoidRootPart")
-    if not head or not root then return end
+    -- Highlight travers murs
+    local hl
+    local ok = pcall(function()
+        hl = Instance.new("Highlight")
+        hl.FillColor          = Color3.fromRGB(255, 30, 30)
+        hl.OutlineColor       = Color3.fromRGB(255, 130, 130)
+        hl.FillTransparency   = 0.5
+        hl.OutlineTransparency = 0
+        hl.DepthMode          = Enum.HighlightDepthMode.AlwaysOnTop
+    end)
+    if not ok then
+        hl = Instance.new("SelectionBox")
+        hl.Color3 = Color3.fromRGB(255,30,30)
+        hl.LineThickness = 0.05
+        hl.SurfaceTransparency = 0.55
+        hl.SurfaceColor3 = Color3.fromRGB(255,30,30)
+    end
 
-    local color
-    if isEnemy(player) then
-        color = Color3.fromRGB(0, 170, 255)  -- ENNEMI = BLEU
+    -- Billboard
+    local bb = Instance.new("BillboardGui")
+    bb.Size = UDim2.new(0, 220, 0, 90)
+    bb.StudsOffset = Vector3.new(0, 4, 0)
+    bb.AlwaysOnTop = true
+    bb.MaxDistance = Config.MaxDistance
+    bb.ResetOnSpawn = false
+
+    -- Nom
+    local nameLbl = Instance.new("TextLabel", bb)
+    nameLbl.Size = UDim2.new(1,0,0,18)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.TextColor3 = Color3.fromRGB(255,80,80)
+    nameLbl.TextSize = Config.TextSize + 1
+    nameLbl.Font = Enum.Font.GothamBold
+    nameLbl.TextStrokeTransparency = 0.3
+    nameLbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+
+    -- HP bar background
+    local hpBg = Instance.new("Frame", bb)
+    hpBg.Size = UDim2.new(0.85, 0, 0, 7)
+    hpBg.Position = UDim2.new(0.075, 0, 0, 22)
+    hpBg.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    hpBg.BorderSizePixel = 0
+    Instance.new("UICorner", hpBg).CornerRadius = UDim.new(1, 0)
+
+    -- HP bar fill
+    local hpFill = Instance.new("Frame", hpBg)
+    hpFill.Size = UDim2.new(1, 0, 1, 0)
+    hpFill.BackgroundColor3 = Color3.fromRGB(50,220,80)
+    hpFill.BorderSizePixel = 0
+    Instance.new("UICorner", hpFill).CornerRadius = UDim.new(1, 0)
+
+    -- HP texte
+    local hpTxt = Instance.new("TextLabel", bb)
+    hpTxt.Size = UDim2.new(1,0,0,13)
+    hpTxt.Position = UDim2.new(0,0,0,32)
+    hpTxt.BackgroundTransparency = 1
+    hpTxt.TextColor3 = Color3.fromRGB(200,200,200)
+    hpTxt.TextSize = 11
+    hpTxt.Font = Enum.Font.Gotham
+    hpTxt.TextStrokeTransparency = 0.4
+    hpTxt.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+
+    -- Distance
+    local distLbl = Instance.new("TextLabel", bb)
+    distLbl.Size = UDim2.new(1,0,0,16)
+    distLbl.Position = UDim2.new(0,0,0,48)
+    distLbl.BackgroundTransparency = 1
+    distLbl.TextColor3 = Color3.fromRGB(255,200,200)
+    distLbl.TextSize = Config.TextSize
+    distLbl.Font = Enum.Font.Gotham
+    distLbl.TextStrokeTransparency = 0.4
+    distLbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+
+    -- Arme
+    local itemLbl = Instance.new("TextLabel", bb)
+    itemLbl.Size = UDim2.new(1,0,0,16)
+    itemLbl.Position = UDim2.new(0,0,0,66)
+    itemLbl.BackgroundTransparency = 1
+    itemLbl.TextColor3 = Color3.fromRGB(255,240,100)
+    itemLbl.TextSize = Config.TextSize - 1
+    itemLbl.Font = Enum.Font.Gotham
+    itemLbl.TextStrokeTransparency = 0.4
+    itemLbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+
+    data.hl       = hl
+    data.bb       = bb
+    data.nameLbl  = nameLbl
+    data.hpBg     = hpBg
+    data.hpFill   = hpFill
+    data.hpTxt    = hpTxt
+    data.distLbl  = distLbl
+    data.itemLbl  = itemLbl
+
+    -- HP listener : connecte l'event Changed de la Humanoid pour réagir instantanément
+    -- (fonctionne côté client même sans permissions serveur)
+    data.hpConn = nil
+
+    ESPObjects[player] = data
+end
+
+local function RemoveESP(player)
+    if ESPObjects[player] then
+        local d = ESPObjects[player]
+        if d.hpConn then d.hpConn:Disconnect() end
+        pcall(function() d.hl:Destroy() end)
+        pcall(function() d.bb:Destroy() end)
+        ESPObjects[player] = nil
+    end
+    if RadarDots[player] then
+        pcall(function() RadarDots[player]:Destroy() end)
+        RadarDots[player] = nil
+    end
+end
+
+local function GetRadarDot(player)
+    if RadarDots[player] then return RadarDots[player] end
+    local dot = Instance.new("Frame", RadarFrame)
+    dot.Size = UDim2.new(0,7,0,7)
+    dot.BackgroundColor3 = Color3.fromRGB(255,50,50)
+    dot.BorderSizePixel = 0
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1,0)
+    RadarDots[player] = dot
+    return dot
+end
+
+-- ============================================================
+-- SPEED : réappliquer au respawn
+-- ============================================================
+local function ApplySpeed(char)
+    if not Config.Speed_Enabled then return end
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.WalkSpeed = 16 * Config.SpeedMultiplier end
+end
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    ApplySpeed(char)
+end)
+
+-- ============================================================
+-- MAIN UPDATE LOOP
+-- ============================================================
+RunService.RenderStepped:Connect(function()
+    local localChar = LocalPlayer.Character
+    local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
+    local localCF   = localRoot and localRoot.CFrame
+
+    -- Speed persistant
+    if Config.Speed_Enabled and localChar then
+        local hum = localChar:FindFirstChildOfClass("Humanoid")
+        if hum and math.abs(hum.WalkSpeed - 16 * Config.SpeedMultiplier) > 0.5 then
+            hum.WalkSpeed = 16 * Config.SpeedMultiplier
+        end
+    end
+
+    RadarFrame.Visible = Config.Radar_Enabled
+
+    if not Config.ESP_Enabled then
+        statusLabel.Text = "ESP INACTIF"
+        statusLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
+        for _, d in pairs(ESPObjects) do
+            if d.hl:IsA("Highlight") then d.hl.Enabled = false
+            else d.hl.Adornee = nil end
+            d.bb.Enabled = false
+        end
+        for _, dot in pairs(RadarDots) do
+            if not Config.Radar_Enabled then dot.Visible = false end
+        end
     else
-        color = Color3.fromRGB(0, 255, 0)    -- ALLIÉ = VERT
+        statusLabel.Text = "ESP ACTIF — " .. (#Players:GetPlayers()-1) .. " joueur(s)"
+        statusLabel.TextColor3 = Color3.fromRGB(200, 50, 50)
     end
 
-    local billboard, label = createBillboard(head, player.Name, color)
-    if not billboard or not label then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
 
-    RunService.RenderStepped:Connect(function()
-        if not billboard.Parent then return end
+        CreateESP(player)
+        local d = ESPObjects[player]
+        if not d then continue end
 
-        billboard.Enabled = ESPEnabled
-
-        if not character.Parent then
-            billboard:Destroy()
-            return
+        local char = player.Character
+        if not char then
+            if d.hl:IsA("Highlight") then d.hl.Enabled = false else d.hl.Adornee = nil end
+            d.bb.Enabled = false
+            if RadarDots[player] then RadarDots[player].Visible = false end
+            continue
         end
 
-        local myChar = LocalPlayer.Character
-        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-
-        local distanceText = ""
-        if root and myRoot then
-            local distance = (root.Position - myRoot.Position).Magnitude
-            distanceText = string.format("%.0f m", distance)
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum  = char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum or hum.Health <= 0 then
+            if d.hl:IsA("Highlight") then d.hl.Enabled = false else d.hl.Adornee = nil end
+            d.bb.Enabled = false
+            if RadarDots[player] then RadarDots[player].Visible = false end
+            continue
         end
 
-        local weaponName = getEquippedWeapon(player)
+        local dist = localRoot and math.floor((root.Position - localRoot.Position).Magnitude) or 0
 
-        label.Text = string.format("%s\n%s\n[%s]", player.Name, distanceText, weaponName)
-    end)
-end
-
-local function onPlayerAdded(player)
-    if player.Character then
-        setupPlayerESP(player.Character, player)
-    end
-    player.CharacterAdded:Connect(function(char)
-        setupPlayerESP(char, player)
-    end)
-end
-
--- joueurs existants
-for _, plr in ipairs(Players:GetPlayers()) do
-    if plr ~= LocalPlayer then
-        onPlayerAdded(plr)
-    end
-end
-Players.PlayerAdded:Connect(onPlayerAdded)
-
-----------------------------------------------------------------
--- ESP ZOMBIES
--- On suppose que chaque zombie est un Model dans workspace.Zombies
--- avec HumanoidRootPart + Head
-----------------------------------------------------------------
-
-local function setupZombieESP(zombieModel)
-    if not zombieModel or not zombieModel:IsA("Model") then return end
-
-    local head = zombieModel:FindFirstChild("Head")
-    local root = zombieModel:FindFirstChild("HumanoidRootPart")
-    if not head or not root then return end
-
-    local nameText = zombieModel.Name or "Zombie"
-    local billboard, label = createBillboard(head, nameText, Color3.fromRGB(255, 0, 0)) -- ROUGE pour zombies
-    if not billboard or not label then return end
-
-    RunService.RenderStepped:Connect(function()
-        if not billboard.Parent then return end
-        billboard.Enabled = ESPEnabled
-
-        if not zombieModel.Parent then
-            billboard:Destroy()
-            return
+        -- Connecter le listener HP si pas encore fait (réaction instantanée aux dégâts/heal)
+        if not d.hpConn then
+            d.hpConn = hum:GetPropertyChangedSignal("Health"):Connect(function()
+                -- Mise à jour immédiate quand Health change (dégâts OU heal)
+                if not d.hpBg then return end
+                local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                d.hpFill.Size = UDim2.new(pct, 0, 1, 0)
+                d.hpFill.BackgroundColor3 = HPColor(pct)
+                d.hpTxt.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
+                d.hpTxt.TextColor3 = HPColor(pct)
+            end)
         end
 
-        local myChar = LocalPlayer.Character
-        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        local distanceText = ""
-
-        if root and myRoot then
-            local distance = (root.Position - myRoot.Position).Magnitude
-            distanceText = string.format("%.0f m", distance)
-        end
-
-        label.Text = string.format("Zombie\n%s", distanceText)
-    end)
-end
-
-if ZOMBIE_FOLDER then
-    for _, z in ipairs(ZOMBIE_FOLDER:GetChildren()) do
-        setupZombieESP(z)
-    end
-
-    ZOMBIE_FOLDER.ChildAdded:Connect(function(child)
-        task.wait(0.1)
-        setupZombieESP(child)
-    end)
-end
-
-----------------------------------------------------------------
--- ESP LOOT
--- On suppose que chaque loot est soit :
---  - une Part dans workspace.Loot
---  - un Model avec PrimaryPart dans workspace.Loot
-----------------------------------------------------------------
-
-local function getLootPartAndName(obj)
-    if obj:IsA("BasePart") then
-        return obj, obj.Name
-    elseif obj:IsA("Model") then
-        local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-        return primary, obj.Name
-    end
-    return nil, nil
-end
-
-local function setupLootESP(lootObj)
-    local part, lootName = getLootPartAndName(lootObj)
-    if not part or not lootName then return end
-
-    local billboard, label = createBillboard(part, lootName, Color3.fromRGB(255, 255, 0)) -- JAUNE pour loot
-    if not billboard or not label then return end
-
-    RunService.RenderStepped:Connect(function()
-        if not billboard.Parent then return end
-        billboard.Enabled = ESPEnabled
-
-        if not lootObj.Parent then
-            billboard:Destroy()
-            return
-        end
-
-        local myChar = LocalPlayer.Character
-        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        local distanceText = ""
-
-        if myRoot then
-            local distance = (part.Position - myRoot.Position).Magnitude
-            distanceText = string.format("%.0f m", distance)
-        end
-
-        label.Text = string.format("%s\n%s", lootName, distanceText)
-    end)
-end
-
-if LOOT_FOLDER then
-    for _, l in ipairs(LOOT_FOLDER:GetChildren()) do
-        setupLootESP(l)
-    end
-
-    LOOT_FOLDER.ChildAdded:Connect(function(child)
-        task.wait(0.1)
-        setupLootESP(child)
-    end)
-end
-
-----------------------------------------------------------------
--- GUI POUR TOGGLER L'ESP
-----------------------------------------------------------------
-
-local function createToggleGUI()
-    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ESP_Toggle_GUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = playerGui
-
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 160, 0, 55)
-    frame.Position = UDim2.new(0, 20, 0, 100)
-    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    frame.BackgroundTransparency = 0.3
-    frame.BorderSizePixel = 0
-    frame.Parent = screenGui
-
-    local uiCorner = Instance.new("UICorner")
-    uiCorner.CornerRadius = UDim.new(0, 8)
-    uiCorner.Parent = frame
-
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, -10, 1, -10)
-    button.Position = UDim2.new(0, 5, 0, 5)
-    button.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    button.TextColor3 = Color3.new(1, 1, 1)
-    button.Font = Enum.Font.SourceSansBold
-    button.TextScaled = true
-    button.Text = "ESP: ON"
-    button.Parent = frame
-
-    local buttonCorner = Instance.new("UICorner")
-    buttonCorner.CornerRadius = UDim.new(0, 6)
-    buttonCorner.Parent = button
-
-    local function updateButton()
-        if ESPEnabled then
-            button.Text = "ESP: ON"
-            button.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+        -- ── HIGHLIGHT
+        if Config.ESP_Highlight and Config.ESP_Enabled then
+            if d.hl:IsA("Highlight") then
+                d.hl.Adornee = char
+                d.hl.Enabled = true
+                if not d.hl.Parent then d.hl.Parent = CoreGui end
+            else
+                d.hl.Adornee = char
+                if not d.hl.Parent then d.hl.Parent = CoreGui end
+            end
         else
-            button.Text = "ESP: OFF"
-            button.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
+            if d.hl:IsA("Highlight") then d.hl.Enabled = false
+            else d.hl.Adornee = nil end
+        end
+
+        -- ── BILLBOARD
+        if Config.ESP_Enabled then
+            d.bb.Enabled = true
+            d.bb.MaxDistance = Config.MaxDistance
+            if not d.bb.Parent then d.bb.Parent = root end
+
+            d.nameLbl.Text = "⚠ " .. player.Name
+
+            -- HP (aussi mis à jour via listener, mais on sync ici aussi)
+            d.hpBg.Visible = Config.ESP_Health
+            d.hpTxt.Visible = Config.ESP_Health
+            if Config.ESP_Health then
+                local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                d.hpFill.Size = UDim2.new(pct, 0, 1, 0)
+                d.hpFill.BackgroundColor3 = HPColor(pct)
+                d.hpTxt.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
+                d.hpTxt.TextColor3 = HPColor(pct)
+            end
+
+            -- Distance
+            d.distLbl.Visible = Config.ESP_Distance
+            if Config.ESP_Distance then
+                d.distLbl.Text = "📍 " .. dist .. " m"
+            end
+
+            -- Arme
+            d.itemLbl.Visible = Config.ESP_Item
+            if Config.ESP_Item then
+                d.itemLbl.Text = GetWeaponLabel(char)
+            end
+        else
+            d.bb.Enabled = false
+        end
+
+        -- ── RADAR
+        if Config.Radar_Enabled and localRoot and localCF then
+            local dot = GetRadarDot(player)
+            local rel   = localCF:PointToObjectSpace(root.Position)
+            local rSize = RadarFrame.AbsoluteSize
+            local scale = (rSize.X / 2) / Config.RadarRange
+            local rx = 0.5 + (-rel.X * scale) / rSize.X
+            local ry = 0.5 + (-rel.Z * scale) / rSize.Y
+            dot.Position = UDim2.new(math.clamp(rx,0,1), -3, math.clamp(ry,0,1), -3)
+            dot.Visible  = (dist <= Config.RadarRange * 1.5)
+        else
+            if RadarDots[player] then RadarDots[player].Visible = false end
         end
     end
+end)
 
-    button.MouseButton1Click:Connect(function()
-        ESPEnabled = not ESPEnabled
-        updateButton()
-    end)
+Players.PlayerRemoving:Connect(RemoveESP)
 
-    updateButton()
-end
+-- INSERT = toggle menu
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Insert then
+        if MainFrame.Visible then
+            MainFrame.Visible = false
+            IconBtn.Visible = true
+            pulseTween:Play()
+        else
+            pulseTween:Pause()
+            IconBtn.BackgroundColor3 = Color3.fromRGB(180, 25, 25)
+            IconBtn.Visible = false
+            MainFrame.Visible = true
+        end
+    end
+end)
 
-createToggleGUI()
+print("[AR2 ESP v4] Chargé ✓  —  INSERT pour ouvrir/fermer | Bouton — pour minimiser")
