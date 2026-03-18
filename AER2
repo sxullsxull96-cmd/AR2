@@ -1,0 +1,319 @@
+--// SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local function getCharacter()
+	return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+end
+
+--// CONFIG
+local Config = {
+	AimAssist = true,
+	ESP = true,
+	Radar = true,
+	AimAssistStrength = 2.00,
+	AssistRadius = 120,
+	RadarScale = 10,
+	ESPMaxDistance = 3000
+}
+
+-- RGB
+local hue = 0
+local function getRGB()
+	hue = (hue + 0.002) % 1
+	return Color3.fromHSV(hue,1,1)
+end
+
+-- GUI
+local ScreenGui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
+
+local MainButton = Instance.new("TextButton")
+MainButton.Size = UDim2.new(0,40,0,40)
+MainButton.Position = UDim2.new(0,10,0,10)
+MainButton.Text = "M"
+MainButton.Parent = ScreenGui
+
+local Menu = Instance.new("Frame")
+Menu.Size = UDim2.new(0,230,0,380)
+Menu.Position = UDim2.new(0,10,0,60)
+Menu.Visible = false
+Menu.Parent = ScreenGui
+Instance.new("UICorner", Menu)
+
+MainButton.MouseButton1Click:Connect(function()
+	Menu.Visible = not Menu.Visible
+end)
+
+-- DRAG
+local dragging = false
+local draggingSlider = false
+local dragStart, startPos
+
+Menu.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not draggingSlider then
+		dragging = true
+		dragStart = input.Position
+		startPos = Menu.Position
+	end
+end)
+
+Menu.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		Menu.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+-- TOGGLES
+local function CreateToggle(text, yPos, key)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1,-20,0,30)
+	btn.Position = UDim2.new(0,10,0,yPos)
+	btn.Parent = Menu
+
+	btn.MouseButton1Click:Connect(function()
+		Config[key] = not Config[key]
+	end)
+
+	RunService.RenderStepped:Connect(function()
+		btn.Text = text..": "..(Config[key] and "ON" or "OFF")
+		btn.BackgroundColor3 = getRGB()
+	end)
+end
+
+CreateToggle("Aim Assist",10,"AimAssist")
+CreateToggle("ESP",50,"ESP")
+CreateToggle("Radar",90,"Radar")
+
+-- SLIDERS
+local function CreateSlider(text, yPos, min, max, key)
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1,-20,0,50)
+	frame.Position = UDim2.new(0,10,0,yPos)
+	frame.BackgroundTransparency = 1
+	frame.Parent = Menu
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1,0,0,20)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1,1,1)
+	label.Parent = frame
+
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(1,0,0,8)
+	bar.Position = UDim2.new(0,0,0,30)
+	bar.Parent = frame
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.new(0.5,0,1,0)
+	fill.Parent = bar
+
+	local draggingLocal = false
+
+	bar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			draggingLocal = true
+			draggingSlider = true
+		end
+	end)
+
+	bar.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			draggingLocal = false
+			draggingSlider = false
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if draggingLocal and input.UserInputType == Enum.UserInputType.MouseMovement then
+			local percent = math.clamp(
+				(input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X,
+				0,1
+			)
+			local value = min + (max - min) * percent
+			Config[key] = tonumber(string.format("%.2f", value))
+			fill.Size = UDim2.new(percent,0,1,0)
+		end
+	end)
+
+	RunService.RenderStepped:Connect(function()
+		label.Text = text..": "..Config[key]
+		fill.BackgroundColor3 = getRGB()
+		bar.BackgroundColor3 = Color3.fromRGB(50,50,50)
+	end)
+end
+
+CreateSlider("Aim Power",140,0.01,4.00,"AimAssistStrength")
+CreateSlider("ESP Distance",200,50,10000,"ESPMaxDistance")
+CreateSlider("Radar Scale",260,5,30,"RadarScale")
+CreateSlider("Aim Radius",320,50,300,"AssistRadius")
+
+-- AIM CIRCLE
+local AimCircle = Instance.new("Frame")
+AimCircle.AnchorPoint = Vector2.new(0.5,0.5)
+AimCircle.BackgroundTransparency = 0.75
+AimCircle.Parent = ScreenGui
+Instance.new("UICorner", AimCircle).CornerRadius = UDim.new(1,0)
+
+-- RADAR
+local Radar = Instance.new("Frame")
+Radar.Size = UDim2.new(0,160,0,160)
+Radar.Position = UDim2.new(1,-170,1,-170)
+Radar.Parent = ScreenGui
+Instance.new("UICorner", Radar)
+
+local RadarDots = {}
+local Indicators = {}
+
+-- ESP
+local function createIndicator(player)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0,100,0,20)
+	billboard.AlwaysOnTop = true
+	billboard.StudsOffset = Vector3.new(0,3,0)
+
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.new(1,0,1,0)
+	text.BackgroundTransparency = 1
+	text.TextColor3 = Color3.new(1,1,1) -- BLANC
+	text.TextScaled = true
+	text.Parent = billboard
+
+	billboard.Parent = player.Character
+	return billboard, text
+end
+
+-- RADAR DOT
+local function createRadarDot()
+	local dot = Instance.new("Frame")
+	dot.Size = UDim2.new(0,4,0,4)
+	dot.BackgroundColor3 = Color3.new(1,1,1)
+	dot.Parent = Radar
+	return dot
+end
+
+-- AIM TARGET
+local function getBestTarget(mousePos)
+	local best, shortest = nil, Config.AssistRadius
+
+	for _,p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer and p.Character then
+			local head = p.Character:FindFirstChild("Head")
+			if head then
+				local pos, visible = Camera:WorldToViewportPoint(head.Position)
+				if visible then
+					local dist = (Vector2.new(pos.X,pos.Y) - mousePos).Magnitude
+					if dist < shortest then
+						shortest = dist
+						best = p
+					end
+				end
+			end
+		end
+	end
+
+	return best
+end
+
+-- LOOP
+RunService.RenderStepped:Connect(function()
+	local char = getCharacter()
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local mousePos = UserInputService:GetMouseLocation()
+
+	-- UI RGB
+	MainButton.BackgroundColor3 = getRGB()
+	Menu.BackgroundColor3 = getRGB()
+	Radar.BackgroundColor3 = getRGB()
+
+	-- TARGET
+	local target = getBestTarget(mousePos)
+
+	-- CERCLE
+	AimCircle.Size = UDim2.new(0, Config.AssistRadius*2, 0, Config.AssistRadius*2)
+	AimCircle.Position = UDim2.new(0,mousePos.X,0,mousePos.Y)
+
+	if target then
+		AimCircle.BackgroundColor3 = Color3.fromRGB(255,60,60) -- 🔴 LOCK
+	else
+		AimCircle.BackgroundColor3 = Color3.fromRGB(0,170,255) -- 🔵 NORMAL
+	end
+
+	AimCircle.Visible = Config.AimAssist
+
+	-- AIM FIX (PAS INVERSÉ)
+	if Config.AimAssist and target and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+		local head = target.Character:FindFirstChild("Head")
+		if head then
+			Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+		end
+	end
+
+	local camLook = Camera.CFrame.LookVector
+	local angle = math.atan2(camLook.X, camLook.Z)
+
+	for _,p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer then
+			local charP = p.Character
+			local rootP = charP and charP:FindFirstChild("HumanoidRootPart")
+
+			if rootP then
+				local dist = (root.Position - rootP.Position).Magnitude
+
+				-- ESP
+				if Config.ESP and dist <= Config.ESPMaxDistance then
+					local pos, visible = Camera:WorldToViewportPoint(rootP.Position)
+
+					if visible then
+						if not Indicators[p] then
+							local gui,label = createIndicator(p)
+							Indicators[p] = {gui=gui,label=label}
+						end
+
+						Indicators[p].label.Text = p.Name.." ["..math.floor(dist).."]"
+					end
+				elseif Indicators[p] then
+					Indicators[p].gui:Destroy()
+					Indicators[p] = nil
+				end
+
+				-- RADAR
+				if Config.Radar then
+					if not RadarDots[p] then
+						RadarDots[p] = createRadarDot()
+					end
+
+					local rel = rootP.Position - root.Position
+
+					local rotatedX = rel.X * math.cos(angle) - rel.Z * math.sin(angle)
+					local rotatedZ = rel.X * math.sin(angle) + rel.Z * math.cos(angle)
+
+					RadarDots[p].Position = UDim2.new(
+						0.5 + rotatedX/Config.RadarScale,0,
+						0.5 + rotatedZ/Config.RadarScale,0
+					)
+				elseif RadarDots[p] then
+					RadarDots[p]:Destroy()
+					RadarDots[p] = nil
+				end
+			end
+		end
+	end
+end)
